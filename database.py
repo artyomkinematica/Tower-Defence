@@ -16,9 +16,9 @@ def init_db():
             progress INTEGER,
             max_progress INTEGER
         )''')
-        # Добавить дефолтные достижения
-        c.execute("INSERT INTO achievements VALUES (1, 'Первый прыжок', 'Соверши первый прыжок', 0, 0, 1)")
-        c.execute("INSERT INTO achievements VALUES (2, 'Сто шагов', 'Пройди 100 шагов', 0, 0, 100)")
+        c.execute("INSERT OR IGNORE INTO achievements VALUES (1, 'Первый прыжок', 'Соверши первый прыжок', 0, 0, 1)")
+        c.execute("INSERT OR IGNORE INTO achievements VALUES (2, 'Сто шагов', 'Пройди 100 шагов', 0, 0, 100)")
+        c.execute("INSERT OR IGNORE INTO achievements VALUES (3, 'Охотник на летучих мышей', 'Убей 50 врагов', 0, 0, 50)")
         conn.commit()
         conn.close()
 
