@@ -1,4 +1,5 @@
 import arcade
+from arcade import Emitter, EmitBurst
 import database as db
 import random
 import math
@@ -31,6 +32,21 @@ ENEMY_SPEED = 2
 ENEMY_SPAWN_INTERVAL = 2.0
 BULLET_SPEED = 10
 FIRE_RATE = 0.125
+
+
+def make_death_emitter(x, y):
+    """частицы"""
+    return Emitter(
+        center_xy=(x, y),
+        emit_controller=EmitBurst(12),  # количество частиц
+        particle_factory=lambda emitter: arcade.LifetimeParticle(
+            filename_or_texture=arcade.make_circle_texture(6, arcade.color.RED),
+            change_xy=arcade.rand_in_circle((0, 0), 50),
+            lifetime=random.uniform(0.8, 1.5),
+            scale=random.uniform(0.8, 1.4),
+            alpha=200
+        )
+    )
 
 
 class Bullet:
@@ -303,10 +319,13 @@ class GameLevelView(arcade.View):
         self.health = 100
         self.game_over = False
         self.win = False
+        self.emitters = []
 
     def setup(self, level=1):
         self.background = arcade.load_texture("assets/background.png")
         self.tower_texture = arcade.load_texture("assets/tower.png")
+        self.background_music = arcade.load_sound("assets/sounds/bg_sound.wav", streaming=True)
+        self.music_player = arcade.play_sound(self.background_music, looping=True, volume=0.3)
 
         self.idle_right = arcade.load_texture("assets/player_idle.png")
         self.run1_right = arcade.load_texture("assets/player_run1.png")
@@ -367,6 +386,9 @@ class GameLevelView(arcade.View):
 
         for enemy in self.enemies:
             enemy.draw()
+
+        for emitter in self.emitters:
+            emitter.draw()
 
         for bullet in self.bullets:
             bullet.draw()
@@ -500,6 +522,10 @@ class GameLevelView(arcade.View):
                     if enemy.take_damage():
                         enemies_to_remove.append(enemy)
                         self.enemies_killed += 1
+
+                        emitter = make_death_emitter(enemy.x, enemy.y)
+                        self.emitters.append(emitter)
+
                         db.update_achievement(3, 1)
 
                         current_ach = next((a for a in db.load_achievements() if a['id'] == 3), None)
@@ -552,6 +578,13 @@ class GameLevelView(arcade.View):
 
         for note in to_remove:
             self.achievement_notifications.remove(note)
+
+        for emitter in self.emitters:
+            emitter.update()
+        self.emitters = [e for e in self.emitters if len(e._particles) > 0]
+
+    def on_hide_view(self):
+        arcade.stop_sound(self.music_player)
 
     def on_key_press(self, key, modifiers):
         self.keys.add(key)
