@@ -66,20 +66,32 @@ class Bullet:
 
 
 class Enemy:
-    """создание врагов"""
-    def __init__(self, x, y):
+    """создание врагов с анимацией и поворотом к башне"""
+    def __init__(self, x, y, health=3, speed=2):
         self.x = x
         self.y = y
         self.width = ENEMY_WIDTH
         self.height = ENEMY_HEIGHT
-        self.speed = ENEMY_SPEED
+        self.speed = speed
         self.health = 3
-        self.max_health = 3
-        self.color = random.choices(range(256), k=3)
+        self.max_health = health
+        self.health = health
 
-    def update(self):
+        self.idle_left   = arcade.load_texture("assets/bat.png", flipped_horizontally=False)      # смотрит ←
+        self.fly_left    = arcade.load_texture("assets/bat_fly.png", flipped_horizontally=False) # смотрит ←
+
+        self.idle_right  = arcade.load_texture("assets/bat.png", flipped_horizontally=True)       # смотрит →
+        self.fly_right   = arcade.load_texture("assets/bat_fly.png", flipped_horizontally=True)  # смотрит →
+
+        self.animation_interval = 0.2
+        self.last_animation_time = 0.0
+        self.current_frame = 0
+
+        self.is_on_left = (x < SCREEN_WIDTH // 2)
+
+    def update(self, delta_time):
         target_x = SCREEN_WIDTH // 2
-        target_y = GROUND_Y + ENEMY_HEIGHT // 2
+        target_y = GROUND_Y + ENEMY_HEIGHT // 2 + 100
 
         dx = target_x - self.x
         dy = target_y - self.y
@@ -89,23 +101,44 @@ class Enemy:
             self.x += dx / distance * self.speed
             self.y += dy / distance * self.speed
 
+        self.last_animation_time += delta_time
+        if self.last_animation_time >= self.animation_interval:
+            self.current_frame = (self.current_frame + 1) % 2
+            self.last_animation_time = 0.0
+
     def draw(self):
-        arcade.draw_rectangle_filled(self.x, self.y, self.width, self.height, self.color)
+        if self.is_on_left:
+            frames = [self.idle_right, self.fly_right]
+        else:
+            frames = [self.idle_left, self.fly_left]
+
+        current_texture = frames[self.current_frame]
+        arcade.draw_texture_rectangle(
+            self.x, self.y,
+            self.width, self.height,
+            current_texture
+        )
 
         health_width = (self.width - 10) * (self.health / self.max_health)
-        arcade.draw_rectangle_filled(self.x, self.y + self.height // 2 + 10,
-                                     self.width - 10, 4, arcade.color.DARK_GRAY)
-        arcade.draw_rectangle_filled(self.x - (self.width - 10) // 2 + health_width // 2,
-                                     self.y + self.height // 2 + 10,
-                                     health_width, 4, arcade.color.GREEN)
+        arcade.draw_rectangle_filled(
+            self.x, self.y + self.height // 2 + 10,
+            self.width - 10, 4, arcade.color.DARK_GRAY
+        )
+        arcade.draw_rectangle_filled(
+            self.x - (self.width - 10) // 2 + health_width // 2,
+            self.y + self.height // 2 + 10,
+            health_width, 4, arcade.color.GREEN
+        )
 
     def take_damage(self, damage=1):
         self.health -= damage
         return self.health <= 0
 
     def collides_with(self, bullet):
-        return (abs(self.x - bullet.x) < self.width // 2 + bullet.radius and
-                abs(self.y - bullet.y) < self.height // 2 + bullet.radius)
+        return (
+            abs(self.x - bullet.x) < self.width // 2 + bullet.radius and
+            abs(self.y - bullet.y) < self.height // 2 + bullet.radius
+        )
 
 
 class MainMenuView(arcade.View):
@@ -245,7 +278,7 @@ class AchievementsView(arcade.View):
 
 
 class GameLevelView(arcade.View):
-    """Отрисовка уровней игры"""
+    """отрисовка уровней игры"""
     def __init__(self):
         super().__init__()
         self.player_sprite = None
@@ -269,6 +302,7 @@ class GameLevelView(arcade.View):
         self.enemies_killed = 0
         self.health = 100
         self.game_over = False
+        self.win = False
 
     def setup(self, level=1):
         self.background = arcade.load_texture("assets/background.png")
@@ -305,13 +339,16 @@ class GameLevelView(arcade.View):
         self.health = 100
         self.game_over = False
 
-        global ENEMY_SPEED, ENEMY_SPAWN_INTERVAL
+        self.win = False
+
         if level == 1:
-            ENEMY_SPEED = 2
-            ENEMY_SPAWN_INTERVAL = 2.0
+            self.enemy_speed = 2
+            self.enemy_spawn_interval = 2.0
+            self.enemy_health = 3
         elif level == 2:
-            ENEMY_SPEED = 3
-            ENEMY_SPAWN_INTERVAL = 1.5
+            self.enemy_speed = 3.5
+            self.enemy_spawn_interval = 1.2
+            self.enemy_health = 5
 
     def on_draw(self):
         self.clear()
@@ -354,13 +391,22 @@ class GameLevelView(arcade.View):
 
         if self.game_over:
             arcade.draw_lrtb_rectangle_filled(0, SCREEN_WIDTH, SCREEN_HEIGHT, 0, (0, 0, 0, 200))
-            arcade.draw_text("GAME OVER", SCREEN_WIDTH // 2, SCREEN_HEIGHT // 2 + 50,
-                             arcade.color.RED, 72, anchor_x="center", anchor_y="center")
-            arcade.draw_text(f"Уничтожено врагов: {self.enemies_killed}", SCREEN_WIDTH // 2, SCREEN_HEIGHT // 2 - 50,
-                             arcade.color.WHITE, 36, anchor_x="center", anchor_y="center")
+
+            if self.win:
+                arcade.draw_text("ПОБЕДА!", SCREEN_WIDTH // 2, SCREEN_HEIGHT // 2 + 50,
+                                 arcade.color.GREEN, 72, anchor_x="center", anchor_y="center")
+                arcade.draw_text(f"Уничтожено врагов: {self.enemies_killed}", SCREEN_WIDTH // 2,
+                                 SCREEN_HEIGHT // 2 - 50,
+                                 arcade.color.WHITE, 36, anchor_x="center", anchor_y="center")
+            else:
+                arcade.draw_text("GAME OVER", SCREEN_WIDTH // 2, SCREEN_HEIGHT // 2 + 50,
+                                 arcade.color.RED, 72, anchor_x="center", anchor_y="center")
+                arcade.draw_text(f"Уничтожено врагов: {self.enemies_killed}", SCREEN_WIDTH // 2,
+                                 SCREEN_HEIGHT // 2 - 50,
+                                 arcade.color.WHITE, 36, anchor_x="center", anchor_y="center")
+
             arcade.draw_rectangle_filled(SCREEN_WIDTH // 2, SCREEN_HEIGHT // 2 - 150, 200, 80, arcade.color.GREEN)
-            arcade.draw_text("Меню", SCREEN_WIDTH // 2, SCREEN_HEIGHT // 2 - 150,
-                             arcade.color.BLACK, 24, anchor_x="center", anchor_y="center")
+            arcade.draw_text("Меню", SCREEN_WIDTH // 2, SCREEN_HEIGHT // 2 - 150, arcade.color.BLACK, 24, anchor_x="center", anchor_y="center")
 
     def on_update(self, delta_time):
         if self.game_over:
@@ -446,7 +492,7 @@ class GameLevelView(arcade.View):
 
         enemies_to_remove = []
         for enemy in self.enemies:
-            enemy.update()
+            enemy.update(delta_time)
 
             bullets_to_remove_local = []
             for bullet in self.bullets:
@@ -454,6 +500,15 @@ class GameLevelView(arcade.View):
                     if enemy.take_damage():
                         enemies_to_remove.append(enemy)
                         self.enemies_killed += 1
+                        db.update_achievement(3, 1)
+
+                        current_ach = next((a for a in db.load_achievements() if a['id'] == 3), None)
+                        if current_ach and current_ach['unlocked'] and 3 not in self.shown_notifications:
+                            self.show_achievement_notification(current_ach['name'], ach_id=3)
+
+                    if self.enemies_killed >= 10:
+                        self.game_over = True
+                        self.win = True
                     bullets_to_remove_local.append(bullet)
 
             for bullet in bullets_to_remove_local:
@@ -480,8 +535,12 @@ class GameLevelView(arcade.View):
             else:
                 x = SCREEN_WIDTH + ENEMY_WIDTH
 
-            y = GROUND_Y + ENEMY_HEIGHT // 2 + random.randint(-50, 50)
-            self.enemies.append(Enemy(x, y))
+            y = GROUND_Y + ENEMY_HEIGHT // 2 + random.randint(-50, 50) + 100
+            self.enemies.append(Enemy(
+                x, y,
+                speed=self.enemy_speed,
+                health=self.enemy_health
+            ))
             self.time_since_last_spawn = 0
 
         self.time_since_last_shot += delta_time
@@ -526,7 +585,7 @@ class GameLevelView(arcade.View):
             self.time_since_last_shot = 0
 
     def shoot(self, target_x, target_y):
-        """Создание пули от игрока к цели"""
+        """создание пули от игрока к цели"""
         bullet = Bullet(self.player_sprite.center_x, self.player_sprite.center_y,
                         target_x, target_y)
         self.bullets.append(bullet)
