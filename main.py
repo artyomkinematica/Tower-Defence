@@ -1,5 +1,7 @@
 import arcade
 import database as db
+import random
+import math
 
 SCREEN_WIDTH = 1920
 SCREEN_HEIGHT = 1080
@@ -22,8 +24,92 @@ GRAVITY = 0.9
 PLAYER_MOVE_SPEED = 5
 STEP_DISTANCE = 100
 
+ENEMY_HEIGHT = 66
+ENEMY_WIDTH = 92
+
+ENEMY_SPEED = 2
+ENEMY_SPAWN_INTERVAL = 2.0
+BULLET_SPEED = 10
+FIRE_RATE = 0.125
+
+
+class Bullet:
+    """создание объектов снарядов"""
+    def __init__(self, x, y, target_x, target_y):
+        self.x = x
+        self.y = y
+        self.radius = 8
+        self.color = arcade.color.YELLOW
+        self.speed = BULLET_SPEED
+
+        dx = target_x - x
+        dy = target_y - y
+        distance = math.sqrt(dx * dx + dy * dy)
+
+        if distance > 0:
+            self.dx = dx / distance * self.speed
+            self.dy = dy / distance * self.speed
+        else:
+            self.dx = 0
+            self.dy = 0
+
+    def update(self):
+        self.x += self.dx
+        self.y += self.dy
+
+    def draw(self):
+        arcade.draw_circle_filled(self.x, self.y, self.radius, self.color)
+
+    def is_off_screen(self):
+        return (self.x < -50 or self.x > SCREEN_WIDTH + 50 or
+                self.y < -50 or self.y > SCREEN_HEIGHT + 50)
+
+
+class Enemy:
+    """создание врагов"""
+    def __init__(self, x, y):
+        self.x = x
+        self.y = y
+        self.width = ENEMY_WIDTH
+        self.height = ENEMY_HEIGHT
+        self.speed = ENEMY_SPEED
+        self.health = 3
+        self.max_health = 3
+        self.color = random.choices(range(256), k=3)
+
+    def update(self):
+        target_x = SCREEN_WIDTH // 2
+        target_y = GROUND_Y + ENEMY_HEIGHT // 2
+
+        dx = target_x - self.x
+        dy = target_y - self.y
+        distance = math.sqrt(dx * dx + dy * dy)
+
+        if distance > 0:
+            self.x += dx / distance * self.speed
+            self.y += dy / distance * self.speed
+
+    def draw(self):
+        arcade.draw_rectangle_filled(self.x, self.y, self.width, self.height, self.color)
+
+        health_width = (self.width - 10) * (self.health / self.max_health)
+        arcade.draw_rectangle_filled(self.x, self.y + self.height // 2 + 10,
+                                     self.width - 10, 4, arcade.color.DARK_GRAY)
+        arcade.draw_rectangle_filled(self.x - (self.width - 10) // 2 + health_width // 2,
+                                     self.y + self.height // 2 + 10,
+                                     health_width, 4, arcade.color.GREEN)
+
+    def take_damage(self, damage=1):
+        self.health -= damage
+        return self.health <= 0
+
+    def collides_with(self, bullet):
+        return (abs(self.x - bullet.x) < self.width // 2 + bullet.radius and
+                abs(self.y - bullet.y) < self.height // 2 + bullet.radius)
+
 
 class MainMenuView(arcade.View):
+    """отрисовка меню игры"""
     def on_show_view(self):
         self.menu_background = arcade.load_texture("assets/background_general.png")
 
@@ -51,7 +137,7 @@ class MainMenuView(arcade.View):
 
     def on_mouse_press(self, x, y, button, modifiers):
         if (SCREEN_WIDTH // 2 - 200 < x < SCREEN_WIDTH // 2 + 200 and
-            SCREEN_HEIGHT // 2 - 50 < y < SCREEN_HEIGHT // 2 + 50):
+                SCREEN_HEIGHT // 2 - 50 < y < SCREEN_HEIGHT // 2 + 50):
             game_view = GameLevelView()
             game_view.setup()
             self.window.show_view(game_view)
@@ -68,6 +154,7 @@ class MainMenuView(arcade.View):
 
 
 class LevelSelectView(arcade.View):
+    """отрисовка меню выбора уровней"""
     def __init__(self):
         super().__init__()
         self.menu_background = None
@@ -98,7 +185,7 @@ class LevelSelectView(arcade.View):
 
     def on_mouse_press(self, x, y, button, modifiers):
         if (SCREEN_WIDTH // 2 - 150 < x < SCREEN_WIDTH // 2 + 150 and
-            300 - 40 < y < 300 + 40):
+                300 - 40 < y < 300 + 40):
             game_view = GameLevelView()
             game_view.setup()
             self.window.show_view(game_view)
@@ -116,6 +203,7 @@ class LevelSelectView(arcade.View):
 
 
 class AchievementsView(arcade.View):
+    """отрисовка меню достижений"""
     def __init__(self):
         super().__init__()
         self.menu_background = None
@@ -157,6 +245,7 @@ class AchievementsView(arcade.View):
 
 
 class GameLevelView(arcade.View):
+    """Отрисовка уровней игры"""
     def __init__(self):
         super().__init__()
         self.player_sprite = None
@@ -173,7 +262,15 @@ class GameLevelView(arcade.View):
         self.last_x = 0
         self.step_accumulator = 0.0
 
-    def setup(self):
+        self.bullets = []
+        self.enemies = []
+        self.time_since_last_shot = 0
+        self.time_since_last_spawn = 0
+        self.enemies_killed = 0
+        self.health = 100
+        self.game_over = False
+
+    def setup(self, level=1):
         self.background = arcade.load_texture("assets/background.png")
         self.tower_texture = arcade.load_texture("assets/tower.png")
 
@@ -200,6 +297,22 @@ class GameLevelView(arcade.View):
         self.facing_right = True
         self.last_x = TOWER_X
 
+        self.bullets = []
+        self.enemies = []
+        self.time_since_last_shot = 0
+        self.time_since_last_spawn = 0
+        self.enemies_killed = 0
+        self.health = 100
+        self.game_over = False
+
+        global ENEMY_SPEED, ENEMY_SPAWN_INTERVAL
+        if level == 1:
+            ENEMY_SPEED = 2
+            ENEMY_SPAWN_INTERVAL = 2.0
+        elif level == 2:
+            ENEMY_SPEED = 3
+            ENEMY_SPAWN_INTERVAL = 1.5
+
     def on_draw(self):
         self.clear()
 
@@ -215,18 +328,44 @@ class GameLevelView(arcade.View):
             self.tower_texture
         )
 
-        arcade.draw_text("← → : Ходьба | Пробел: Прыжок", 20, 20, arcade.color.WHITE, 18)
+        for enemy in self.enemies:
+            enemy.draw()
+
+        for bullet in self.bullets:
+            bullet.draw()
+
+        arcade.draw_text("← → : Ходьба | Пробел: Прыжок | ЛКМ: Стрельба", 20, 20, arcade.color.WHITE, 18)
+
+        arcade.draw_text(f"Здоровье: {self.health}", SCREEN_WIDTH - 200, SCREEN_HEIGHT - 30,
+                         arcade.color.WHITE, 24, anchor_x="right")
+
+        arcade.draw_text(f"Уничтожено врагов: {self.enemies_killed}", SCREEN_WIDTH - 200, SCREEN_HEIGHT - 60,
+                         arcade.color.WHITE, 20, anchor_x="right")
+
+        if not self.game_over:
+            arcade.draw_rectangle_filled(80, SCREEN_HEIGHT - 40, 140, 60, arcade.color.DARK_RED)
+            arcade.draw_text("Выйти", 80, SCREEN_HEIGHT - 40,
+                             arcade.color.WHITE, 16, anchor_x="center", anchor_y="center")
 
         for i, note in enumerate(self.achievement_notifications):
-            y = SCREEN_HEIGHT - 50 - i * 40
+            y = SCREEN_HEIGHT - 100 - i * 40
             arcade.draw_text(note['text'], SCREEN_WIDTH - 20, y,
                              arcade.color.GOLD, 20, anchor_x="right")
 
-        arcade.draw_rectangle_filled(80, SCREEN_HEIGHT - 40, 140, 60, arcade.color.DARK_RED)
-        arcade.draw_text("Выйти", 80, SCREEN_HEIGHT - 40,
-                         arcade.color.WHITE, 16, anchor_x="center", anchor_y="center")
+        if self.game_over:
+            arcade.draw_lrtb_rectangle_filled(0, SCREEN_WIDTH, SCREEN_HEIGHT, 0, (0, 0, 0, 200))
+            arcade.draw_text("GAME OVER", SCREEN_WIDTH // 2, SCREEN_HEIGHT // 2 + 50,
+                             arcade.color.RED, 72, anchor_x="center", anchor_y="center")
+            arcade.draw_text(f"Уничтожено врагов: {self.enemies_killed}", SCREEN_WIDTH // 2, SCREEN_HEIGHT // 2 - 50,
+                             arcade.color.WHITE, 36, anchor_x="center", anchor_y="center")
+            arcade.draw_rectangle_filled(SCREEN_WIDTH // 2, SCREEN_HEIGHT // 2 - 150, 200, 80, arcade.color.GREEN)
+            arcade.draw_text("Меню", SCREEN_WIDTH // 2, SCREEN_HEIGHT // 2 - 150,
+                             arcade.color.BLACK, 24, anchor_x="center", anchor_y="center")
 
     def on_update(self, delta_time):
+        if self.game_over:
+            return
+
         self.player_sprite.center_y += self.player_sprite.change_y
 
         if self.player_sprite.center_y > PLAYER_START_Y:
@@ -251,39 +390,17 @@ class GameLevelView(arcade.View):
 
         old_x = self.player_sprite.center_x
 
-        self.player_sprite.center_x += self.player_sprite.change_x
+        new_x = self.player_sprite.center_x + self.player_sprite.change_x
 
-        tower_left = TOWER_X - TOWER_WIDTH // 2
-        tower_right = TOWER_X + TOWER_WIDTH // 2
+        tower_left_boundary = TOWER_X - TOWER_WIDTH // 2 + PLAYER_WIDTH // 2
+        tower_right_boundary = TOWER_X + TOWER_WIDTH // 2 - PLAYER_WIDTH // 2
 
-        player_left = self.player_sprite.center_x - self.player_sprite.width // 2
-        player_right = self.player_sprite.center_x + self.player_sprite.width // 2
+        if new_x < tower_left_boundary:
+            new_x = tower_left_boundary
+        elif new_x > tower_right_boundary:
+            new_x = tower_right_boundary
 
-        if player_left < tower_left:
-            self.player_sprite.center_x = tower_left + self.player_sprite.width // 2
-        elif player_right > tower_right:
-            self.player_sprite.center_x = tower_right - self.player_sprite.width // 2
-
-        new_x = self.player_sprite.center_x
-        if moving and abs(new_x - old_x) > 0.1:
-            distance = abs(new_x - old_x)
-            self.step_accumulator += distance / STEP_DISTANCE
-            progress = int(self.step_accumulator)
-
-            if progress > 0:
-                ach_before = db.load_achievements()
-                hundred_before = next((a for a in ach_before if a['id'] == 2), None)
-                was_unlocked = hundred_before['unlocked'] if hundred_before else False
-
-                db.update_achievement(2, progress)
-                self.step_accumulator -= progress
-
-                ach_after = db.load_achievements()
-                hundred_after = next((a for a in ach_after if a['id'] == 2), None)
-                is_now_unlocked = hundred_after['unlocked'] if hundred_after else False
-
-                if not was_unlocked and is_now_unlocked:
-                    self.show_achievement_notification(hundred_after['name'], ach_id=2)
+        self.player_sprite.center_x = new_x
 
         if not self.on_ground:
             self.player_sprite.texture = self.jump_left if not self.facing_right else self.jump_right
@@ -292,7 +409,6 @@ class GameLevelView(arcade.View):
             if self.last_walk_time > 0.1:
                 self.walk_frame = (self.walk_frame + 1) % 2
                 self.last_walk_time = 0
-
             if self.facing_right:
                 self.player_sprite.texture = self.walk_frames_right[self.walk_frame]
             else:
@@ -300,17 +416,75 @@ class GameLevelView(arcade.View):
         else:
             self.player_sprite.texture = self.idle_left if not self.facing_right else self.idle_right
 
-        tower_left = TOWER_X - TOWER_WIDTH // 2
-        tower_right = TOWER_X + TOWER_WIDTH // 2
+        if moving and abs(new_x - old_x) > 0.1:
+            distance = abs(new_x - old_x)
+            self.step_accumulator += distance
 
-        player_left = self.player_sprite.center_x - self.player_sprite.width // 2
-        player_right = self.player_sprite.center_x + self.player_sprite.width // 2
+            if self.step_accumulator >= STEP_DISTANCE:
+                steps_count = int(self.step_accumulator // STEP_DISTANCE)
 
-        if player_left < tower_left:
-            self.player_sprite.center_x = tower_left + self.player_sprite.width // 2
-        elif player_right > tower_right:
-            self.player_sprite.center_x = tower_right - self.player_sprite.width // 2
+                current_achievements = db.load_achievements()
+                step_achievement = next((a for a in current_achievements if a['id'] == 2), None)
+                if step_achievement:
+                    was_unlocked = step_achievement['unlocked']
 
+                    db.update_achievement(2, steps_count)
+                    self.step_accumulator -= steps_count * STEP_DISTANCE
+
+                    updated_achievements = db.load_achievements()
+                    updated_step_ach = next((a for a in updated_achievements if a['id'] == 2), None)
+                    if updated_step_ach and not was_unlocked and updated_step_ach['unlocked']:
+                        self.show_achievement_notification(updated_step_ach['name'], ach_id=2)
+        bullets_to_remove = []
+        for bullet in self.bullets:
+            bullet.update()
+            if bullet.is_off_screen():
+                bullets_to_remove.append(bullet)
+
+        for bullet in bullets_to_remove:
+            self.bullets.remove(bullet)
+
+        enemies_to_remove = []
+        for enemy in self.enemies:
+            enemy.update()
+
+            bullets_to_remove_local = []
+            for bullet in self.bullets:
+                if enemy.collides_with(bullet):
+                    if enemy.take_damage():
+                        enemies_to_remove.append(enemy)
+                        self.enemies_killed += 1
+                    bullets_to_remove_local.append(bullet)
+
+            for bullet in bullets_to_remove_local:
+                if bullet in self.bullets:
+                    self.bullets.remove(bullet)
+
+            if enemy.x > TOWER_X - TOWER_WIDTH // 2 and enemy.x < TOWER_X + TOWER_WIDTH // 2:
+                self.health -= 10
+                enemies_to_remove.append(enemy)
+
+                if self.health <= 0:
+                    self.game_over = True
+                    self.health = 0
+
+        for enemy in enemies_to_remove:
+            if enemy in self.enemies:
+                self.enemies.remove(enemy)
+
+        self.time_since_last_spawn += delta_time
+        if self.time_since_last_spawn >= ENEMY_SPAWN_INTERVAL:
+            side = random.choice(['left', 'right'])
+            if side == 'left':
+                x = -ENEMY_WIDTH
+            else:
+                x = SCREEN_WIDTH + ENEMY_WIDTH
+
+            y = GROUND_Y + ENEMY_HEIGHT // 2 + random.randint(-50, 50)
+            self.enemies.append(Enemy(x, y))
+            self.time_since_last_spawn = 0
+
+        self.time_since_last_shot += delta_time
         to_remove = []
         for note in self.achievement_notifications:
             note['created_at'] += delta_time
@@ -337,9 +511,25 @@ class GameLevelView(arcade.View):
             self.keys.remove(key)
 
     def on_mouse_press(self, x, y, button, modifiers):
+        if self.game_over:
+            if (SCREEN_WIDTH // 2 - 100 < x < SCREEN_WIDTH // 2 + 100 and
+                    SCREEN_HEIGHT // 2 - 190 < y < SCREEN_HEIGHT // 2 - 110):
+                menu_view = MainMenuView()
+                self.window.show_view(menu_view)
+            return
         if (10 < x < 150) and (SCREEN_HEIGHT - 70 < y < SCREEN_HEIGHT - 10):
             menu_view = MainMenuView()
             self.window.show_view(menu_view)
+        elif button == arcade.MOUSE_BUTTON_LEFT and self.time_since_last_shot >= FIRE_RATE or\
+            button == arcade.MOUSE_BUTTON_RIGHT and self.time_since_last_shot >= FIRE_RATE:
+            self.shoot(x, y)
+            self.time_since_last_shot = 0
+
+    def shoot(self, target_x, target_y):
+        """Создание пули от игрока к цели"""
+        bullet = Bullet(self.player_sprite.center_x, self.player_sprite.center_y,
+                        target_x, target_y)
+        self.bullets.append(bullet)
 
     def show_achievement_notification(self, achievement_name, ach_id=None):
         if ach_id is not None and ach_id in self.shown_notifications:
@@ -354,11 +544,13 @@ class GameLevelView(arcade.View):
 
 
 class GameWindow(arcade.Window):
+    """отрисовка окна приложения"""
     def __init__(self):
         super().__init__(SCREEN_WIDTH, SCREEN_HEIGHT, TITLE, resizable=False)
 
 
 def main():
+    """запуск игры"""
     db.init_db()
     print("Достижения при запуске:", db.load_achievements())
     window = GameWindow()
