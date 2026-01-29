@@ -324,7 +324,7 @@ class GameLevelView(arcade.View):
     def setup(self, level=1):
         self.background = arcade.load_texture("assets/background.png")
         self.tower_texture = arcade.load_texture("assets/tower.png")
-        self.background_music = arcade.load_sound("assets/sounds/bg_sound.wav", streaming=True)
+        self.background_music = arcade.load_sound("assets/bg_sound.wav", streaming=True)
         self.music_player = arcade.play_sound(self.background_music, looping=True, volume=0.3)
 
         self.idle_right = arcade.load_texture("assets/player_idle.png")
